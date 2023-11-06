@@ -8,8 +8,8 @@
 #define SHUNT_RESISTANCE 0.005    // shunt register = 0.005 Ohm
 #define AMPLIFICATION 50          // 50 amplification
 #define RESOLUTUION 1023          // resolution
-#define INPUT_VOLTAGE 5           // offset input voltage
-#define OFFSET 2.5                // offset voltage
+#define INPUT_VOLTAGE 3.3          // offset input voltage
+#define OFFSET 1.65               // offset voltage
 #define VOL_PER_RESO 0.00489      // INPUT_VOLTAGE / RESOLUTUION
 #define AMP_PER_RES 2.5           // AMPLIFICATION * SHUNT_RESISTANCE
 #define TIMES 1                   // time count
