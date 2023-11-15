@@ -1,95 +1,86 @@
-#include "MotorControl.h"
-// #define SERIAL_PRINT 
-// #define TEST_LED
+#include "MotorControlSetting.h"
 
-HX711 Loadcell;
-
-uint8_t status = FALSE;
+uint16_t cnt = 0;
+// velocity
+uint16_t vel = 0;
 
 // distance variable
-uint16_t distance;
-uint16_t filtered_distance;
+uint16_t distance = 0;
 
 // current variable
 float cur_u;
 float cur_v;
-float filtered_cur_u;
-float filtered_cur_v;
 
-// loadcell variable
-uint16_t scale_factor = 4782;
-float input_force = 0;
-float filtered_input_force = 0;
+// loadcell
+int32_t input_force_right = 0;
+int32_t input_force_left = 0;
+// pwm value
+uint16_t output_right = 0;
+uint16_t output_left = 0;
 
 void setup(){
-  Serial.begin(460800);
+  Serial.begin(250000);
+  Wire.begin();                         // I2C Master
   GPIO_Setting();
+  // LED_TEST();
+  FND_Setting();
+  LoadCell_Setting();
   PWM_Setting();
   Interrupt_Setting();
-  Loadcell.LoadCell_Setting(scale_factor);
-  
-  #ifdef SERIAL_PRINT
-  Serial.println("Setting finish");
-  #endif
+  Serial.println("setup finish");
 }
 
 void loop(){
-
 }
+
+// velocity
+void TC0_Handler(){                            // 40ms        
+  REG_TC0_SR0;  
+  digitalWrite(TEST_LED_1, HIGH);              // red
+  cnt++;
+  digitalWrite(TEST_LED_1, LOW);
+}
+
 // loadcell
-void TC6_Handler(){
-  REG_TC2_SR0;  // flag clear
-  input_force = Loadcell.Get_Input();
-  filtered_input_force = Loadcell.LPF_Input(filtered_input_force, 0.1); // theta = 0.1
+void TC3_Handler(){                            // 50ms        
+  REG_TC1_SR0;
+  digitalWrite(TEST_LED_2, HIGH);              // yellow
+  input_force_right = Get_Force_Right();
+  input_force_left = Get_Force_Left();
+  Serial.println(input_force_right);
+  // cnt++;
+  digitalWrite(TEST_LED_2, LOW);               
+}
+
+// Controller
+void TC4_Handler(){                            // 5ms
+  REG_TC1_SR1; 
+  // digitalWrite(TEST_LED_3, HIGH);           // white
+  output_right = Controller(input_force_right);
+  output_left = Controller(input_force_left);
   
-  if(status == TRUE){
-    PWM_VALUE_RIGHT = input_force;
-    PWM_VALUE_LEFT = input_force;
+  if(Is_OnOff() == true) {                        
+    PWM_VALUE_LEFT = output_left;
+    PWM_VALUE_RIGHT = output_right;
   }
-
-  #ifdef SERIAL_PRINT
-  Serial.print(input_force);
-  Serial.print("\t");
-  Serial.println(filtered_input_force);
-  #endif
+  // cnt++;
+  // digitalWrite(TEST_LED_3, LOW);
 }
 
-// current measure
-void TC7_Handler(){           // 10ms
-  REG_TC2_SR1;                // flag clear
-  // row data
-  cur_u = GetCurrent(ADC_PIN1, TIMES);
-  cur_v = GetCurrent(ADC_PIN2, TIMES);
-  // filtered data
-  filtered_cur_u = LPF_Current(filtered_cur_u, 0.1, ADC_PIN1);
-  filtered_cur_v = LPF_Current(filtered_cur_v, 0.1, ADC_PIN2);
-
-  #ifdef SERIAL_PRINT
-  digitalWrite(3, HIGH);   // test led 
-  Serial.print(cur_u);
-  Serial.print("\t");
-  Serial.println(cur_v);
-  Serial.print(filtered_cur_u);
-  Serial.print("\t");
-  Serial.println(filtered_cur_v);
-  #endif
+// FND
+void TC5_Handler(){                           // 20ms
+  REG_TC1_SR2;                                // flag clear
+  // Display_FND(ABS(input_force_right) * 10);
+  Display_FND(cnt);
 }
 
-// ultrasonic sensor
-void TC8_Handler(){           // 100ms
-  REG_TC2_SR2;                // flag clear
-  // row data
+void TC8_Handler(){                           // 100ms
+  REG_TC2_SR2;                                // flag clear
+  digitalWrite(TEST_LED_4, HIGH);             // blue
   distance = GetDistance();
-  // filtered data
-  filtered_distance = LPF_Distance(filtered_distance, 0.1); // theta = 0.1
-
-  if(filtered_distance < LIMIT_DISTANCE){
+  if(distance < LIMIT_DISTANCE){
     System_Off();
   }
-  
-  #ifdef SERIAL_PRINT
-  Serial.print(distance);
-  Serial.print("\t");
-  Serial.println(filtered_distance);
-  #endif
+  // cnt++;
+  digitalWrite(TEST_LED_4, LOW);
 }
