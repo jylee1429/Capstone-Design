@@ -5,148 +5,131 @@
     void yield(void) {};
 #endif
 
-HX711::HX711(byte dout, byte pd_sck, byte gain) {
-	begin(dout, pd_sck, gain);
+LoadCell loadcell_right;
+LoadCell loadcell_left;
+
+float calibration_factor_right = 69259;
+float calibration_factor_left = 81889;
+
+void Init(LoadCell* loadcell, uint8_t data_pin, uint8_t clk_pin) {
+  loadcell->clk = clk_pin;
+  loadcell->data = data_pin;
+  loadcell->calibration = 1;
+  loadcell->offset = 0;
+
+  pinMode(loadcell->clk, OUTPUT);
+	pinMode(loadcell->data, INPUT);
+
+  loadcell->gain = 1;
+  digitalWrite(loadcell->clk, LOW);
+
+  Read(loadcell);
 }
 
-HX711::HX711() {
+uint8_t Check_Ready(LoadCell* loadcell) {
+	return digitalRead(loadcell->data) == LOW; 
 }
 
-HX711::~HX711() {
-}
-
-void HX711::begin(byte dout, byte pd_sck, byte gain) {
-	PD_SCK = pd_sck;
-	DOUT = dout;
-
-	pinMode(PD_SCK, OUTPUT);
-	pinMode(DOUT, INPUT);
-
-	set_gain(gain);
-}
-
-bool HX711::is_ready() {
-	return digitalRead(DOUT) == LOW; 
-}
-
-void HX711::set_gain(byte gain) {
-	switch (gain) {
-		case 128:		// channel A, gain factor 128
-			GAIN = 1;
-			break;
-		case 64:		// channel A, gain factor 64
-			GAIN = 3;
-			break;
-		case 32:		// channel B, gain factor 32
-			GAIN = 2;
-			break;
+long Read(LoadCell* loadcell) {
+	while (!Check_Ready(loadcell)) {
+    yield();
 	}
 
-	digitalWrite(PD_SCK, LOW);
-	read();
-}
-
-long HX711::read() {
-	// wait for the chip to become ready
-	while (!is_ready()) {
-		// Will do nothing on Arduino but prevent resets of ESP8266 (Watchdog Issue)
-		yield();
-	}
-
-	unsigned long value = 0;
+	uint32_t value = 0;
 	uint8_t data[3] = { 0 };
-	uint8_t filler = 0x00;
+	uint8_t signbit = 0x00;
+  uint8_t i;
 
-	// pulse the clock pin 24 times to read the data
-	data[2] = shiftIn(DOUT, PD_SCK, MSBFIRST);
-	data[1] = shiftIn(DOUT, PD_SCK, MSBFIRST);
-	data[0] = shiftIn(DOUT, PD_SCK, MSBFIRST);
-
-	// set the channel and the gain factor for the next reading using the clock pin
-	for (unsigned int i = 0; i < GAIN; i++) {
-		digitalWrite(PD_SCK, HIGH);
-		digitalWrite(PD_SCK, LOW);
+	data[2] = shiftIn(loadcell->data, loadcell->clk, MSBFIRST);
+	data[1] = shiftIn(loadcell->data, loadcell->clk, MSBFIRST);
+	data[0] = shiftIn(loadcell->data, loadcell->clk, MSBFIRST);
+  
+	for (i = 0; i < loadcell->gain; i++) {
+		digitalWrite(loadcell->clk, HIGH);
+		digitalWrite(loadcell->clk, LOW);
 	}
 
-	// Replicate the most significant bit to pad out a 32-bit signed integer
 	if (data[2] & 0x80) {
-		filler = 0xFF;
+		signbit = 0xFF;
 	} else {
-		filler = 0x00;
+		signbit = 0x00;
 	}
 
-	// Construct a 32-bit signed integer
-	value = ( static_cast<unsigned long>(filler) << 24
-			| static_cast<unsigned long>(data[2]) << 16
-			| static_cast<unsigned long>(data[1]) << 8
-			| static_cast<unsigned long>(data[0]) );
-
-	return static_cast<long>(value);
+	value = ( (uint32_t)(signbit) << 24
+			| (uint32_t)(data[2]) << 16
+			| (uint32_t)(data[1]) << 8
+			| (uint32_t)(data[0]) );
+	return (int32_t)(value);
 }
 
-long HX711::read_average(byte times) {
-	long sum = 0;
-	for (byte i = 0; i < times; i++) {
-		sum += read();
-		yield();
+int32_t Read_Average(LoadCell* loadcell, uint8_t times) {
+	int32_t sum = 0;
+	int8_t i;
+  for (i = 0; i < times; i++) {
+		sum += Read(loadcell);
 	}
 	return sum / times;
 }
 
-double HX711::get_value(byte times) {
-	return read_average(times) - OFFSET;
+double Get_Value(LoadCell* loadcell, uint8_t times) {
+	return Read_Average(loadcell, times) - (loadcell->offset);
 }
 
-float HX711::get_units(byte times) {
-	return get_value(times) / SCALE;
+float Get_Units(LoadCell* loadcell, uint8_t times) {
+	return Get_Value(loadcell, times) / (loadcell->calibration);
 }
 
-void HX711::tare(byte times) {
-	double sum = read_average(times);
-	set_offset(sum);
+void Tare(LoadCell* loadcell, uint8_t times) {
+	double sum = Read_Average(loadcell, times);
+	Set_Offset(loadcell, sum);
 }
 
-void HX711::set_scale(float scale) {
-	SCALE = scale;
+void Set_Calibration(LoadCell* loadcell, float calibration) {
+	loadcell->calibration = calibration;
 }
 
-float HX711::get_scale() {
-	return SCALE;
+float Get_Calibration(LoadCell* loadcell) {
+	return loadcell->calibration;
 }
 
-void HX711::set_offset(long offset) {
-	OFFSET = offset;
+void Set_Offset(LoadCell* loadcell, double offset) {
+	loadcell->offset = offset;
 }
 
-long HX711::get_offset() {
-	return OFFSET;
+int32_t Get_Offset(LoadCell* loadcell) {
+	return loadcell->offset;
 }
 
-void HX711::power_down() {
-	digitalWrite(PD_SCK, LOW);
-	digitalWrite(PD_SCK, HIGH);
+void Power_Down(LoadCell* loadcell) {
+	digitalWrite(loadcell->clk, LOW);
+	digitalWrite(loadcell->clk, HIGH);
 }
 
-void HX711::power_up() {
-	digitalWrite(PD_SCK, LOW);
+void Power_Up(LoadCell* loadcell) {
+	digitalWrite(loadcell->clk, LOW);
 }
 
-void HX711::LoadCell_Setting(uint16_t calibration_factor){
-  begin(DOUT_PIN, SCLK_PIN);
-  set_scale();
-  tare();
-  set_scale(calibration_factor);
-  #ifdef SERIAL_PRINT 
-  Serial.println("LoadCell Setting");
-  #endif
+void LoadCell_Setting(void){
+  Init(&loadcell_right, DOUT_PIN_RIGHT, CLK_PIN_RIGHT);
+  Init(&loadcell_left, DOUT_PIN_LEFT, CLK_PIN_LEFT);
+  Tare(&loadcell_right, TIMES);
+  Tare(&loadcell_left, TIMES);
+  Set_Calibration(&loadcell_right, calibration_factor_right);
+  Set_Calibration(&loadcell_left, calibration_factor_left);
 }
 
-float HX711::Get_Input(){
-  return get_units() * 0.453592;  //[kg]
+float Get_Force_Right(void){
+  float force;
+  force = Get_Units(&loadcell_right, 1) / 0.10197;                // [N]
+  if(force < DEADBAND)
+    force = 0;
+  return force;
 }
 
-float HX711::LPF_Input(float prev_filter_val, float theta){
-  float filter_val;
-  filter_val = prev_filter_val * (1 - theta) + Get_Input() * theta;
-  return filter_val;
+float Get_Force_Left(void){
+  float force;
+  force = Get_Units(&loadcell_left, 1) / 0.10197;                 // [N]
+  if(force < DEADBAND)
+    force = 0;
+  return force;
 }

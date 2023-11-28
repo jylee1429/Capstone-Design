@@ -3,11 +3,14 @@
 
 #include <stdint.h>
 
-#define TRIGGER_PIN 4
-#define ECHO_PIN 3
-#define LIMIT_DISTANCE 5
+#define TRIGGER_PIN         24
+#define ECHO_PIN            26
+#define LIMIT_DISTANCE      30
+#define THETA               0.85
 
+void Init(void);
+void Distance_Sensor_Setting(void);
 uint16_t GetDistance(void);
-uint16_t LPF_Distance(uint16_t prev_filter_val, float theta);
+uint16_t LPF_Distance(uint16_t prev_estimated_value);
 
 #endif
